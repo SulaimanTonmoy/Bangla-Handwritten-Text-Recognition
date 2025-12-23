@@ -154,4 +154,4 @@ vite.config.ts.timestamp-*
 .vite/
 
 
-models/
+backend/model/
