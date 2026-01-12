@@ -6,6 +6,10 @@ export default function Annotator() {
   const [boxes, setBoxes] = useState([]);
   const [fileName, setFileName] = useState("");
 
+  // For unique box IDs
+  const [nextBoxId, setNextBoxId] = useState(1);
+  const [currentImageId, setCurrentImageId] = useState(1);
+
   // Paint-like drawing state
   const imgRef = useRef(null);
   const overlayRef = useRef(null);
@@ -24,11 +28,13 @@ export default function Annotator() {
   const toNatural = (xDisp, yDisp) => ({ x: xDisp / scale.sx, y: yDisp / scale.sy });
   const toDisplay = (xNat, yNat) => ({ x: xNat * scale.sx, y: yNat * scale.sy });
 
+  // Upload handler
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileName(file.name);
+    setCurrentImageId((prev) => prev + 1); // increment image ID for each new image
 
     const formData = new FormData();
     formData.append("file", file);
@@ -46,9 +52,18 @@ export default function Annotator() {
       headers: { "Content-Type": "multipart/form-data" },
     });
 
-    setBoxes(res.data.annotations || []);
+    // Add OCR results with proper IDs
+    const ocrBoxes = (res.data.annotations || []).map((b) => ({
+      ...b,
+      id: nextBoxId + Math.random(), // ensure unique
+      image_id: currentImageId + 1,  // associate with this image
+      confidence: b.confidence ?? 1.0,
+    }));
+    setBoxes(ocrBoxes);
+    setNextBoxId((prev) => prev + ocrBoxes.length + 1);
   };
 
+  // Export handler
   const handleExport = async () => {
     const img = imgRef.current;
     if (!img) return;
@@ -73,7 +88,7 @@ export default function Annotator() {
     link.click();
   };
 
-  // Delete by index (click a box)
+  // Delete by index
   const deleteBoxAt = (index) => setBoxes((prev) => prev.filter((_, i) => i !== index));
 
   // Undo last box
@@ -88,8 +103,7 @@ export default function Annotator() {
   };
 
   const handleMouseDown = (e) => {
-    if (!image) return;
-    if (e.button !== 0) return; // left click only
+    if (!image || e.button !== 0) return;
     const p = getLocalPoint(e);
     if (!p) return;
 
@@ -121,13 +135,12 @@ export default function Annotator() {
     setIsDrawing(false);
     setStartPt(null);
 
-    // ignore tiny drags
     if (tempRect.w < 3 || tempRect.h < 3) {
       setTempRect(null);
       return;
     }
 
-    // display -> natural
+    // Convert to natural coordinates
     const p1 = toNatural(tempRect.x, tempRect.y);
     const p2 = toNatural(tempRect.x + tempRect.w, tempRect.y + tempRect.h);
 
@@ -138,20 +151,21 @@ export default function Annotator() {
 
     const label = window.prompt("Enter the correct text for this box:", "");
     const newBox = {
-    bbox: [x, y, w, h],
-    text: (label ?? "").trim(),
-    confidence: 1.0,
+      bbox: [x, y, w, h],
+      id: nextBoxId,
+      image_id: currentImageId,
+      text: (label ?? "").trim(),
+      confidence: 1.0,
     };
-  
-
 
     setBoxes((prev) => [...prev, newBox]);
+    setNextBoxId((prev) => prev + 1);
     setTempRect(null);
   };
 
   return (
     <div className="w-full bg-white rounded-2xl shadow-lg p-8">
-      {/* Upload Section */}
+      {/* Upload */}
       <div className="flex flex-col items-center gap-4">
         <label className="w-full">
           <input
@@ -167,11 +181,9 @@ export default function Annotator() {
                        border border-gray-300 rounded-lg p-2"
           />
         </label>
-
-        
       </div>
 
-      {/* Image + Boxes */}
+      {/* Image + Overlay */}
       {image && (
         <div className="mt-6 flex justify-center">
           <div className="relative inline-block select-none">
@@ -184,7 +196,6 @@ export default function Annotator() {
               onLoad={() => setTempRect(null)}
             />
 
-            {/* Overlay */}
             <div
               ref={overlayRef}
               className="absolute inset-0 z-10"
@@ -195,16 +206,16 @@ export default function Annotator() {
               onMouseLeave={handleMouseUp}
             >
               {/* Existing boxes */}
-              {boxes.map((b, i) => {
+              {boxes.map((b) => {
                 const [x, y, w, h] = b.bbox;
                 const p = toDisplay(x, y);
                 return (
                   <div
-                    key={i}
-                    title="Click to delete"
+                    key={b.id}
+                    title={b.text || "Click to delete"}
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteBoxAt(i);
+                      deleteBoxAt(boxes.findIndex((bx) => bx.id === b.id));
                     }}
                     className="absolute border-2 border-red-500 bg-red-100 bg-opacity-10"
                     style={{
@@ -260,4 +271,3 @@ export default function Annotator() {
     </div>
   );
 }
-
